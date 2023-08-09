@@ -17,6 +17,7 @@ using namespace llvm;
 class OurCFG {
 private:
   std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> AdjacencyList;
+  std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> TransposeAdjacencyList;
   std::unordered_set<BasicBlock *> Visited;
   BasicBlock *StartBlock;
 
@@ -24,8 +25,10 @@ private:
   void DFS(BasicBlock *Current);
 public:
   OurCFG(Function &F);
+  void CreateTransposeCFG();
   void TraverseGraph();
   bool IsReachable(BasicBlock *);
 };
 
 #endif // LLVM_PROJECT_OURCFG_H
+
