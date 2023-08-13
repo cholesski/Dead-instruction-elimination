@@ -16,6 +16,8 @@
 #include <iostream>
 #include <set>
 #include <unordered_map>
+#include <algorithm>
+#include <iterator>
 
 using namespace llvm;
 
@@ -80,6 +82,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
     bool hasChanges = false;
     do {
+      hasChanges = false;
       for (BasicBlock& BB : F){
         //temporary variables 
         std::set<Value*> top_ = *(new std::set<Value*>(top[&BB]));
@@ -87,13 +90,25 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         /*sad tek vidim i mislim da se ovaj graf ne pravi dobro jer on ide redom kroz BB i samo dodaje linearno mesto 
         da uvezuje successore i predecessore*/
         /*ovo je odvratno i treba bolje da se uradi*/
-        for (auto it = pred_begin(&BB), et = pred_end(&BB); it != et; ++it){
-          BasicBlock* predecessor = *it;
-          for (Value* v : top[predecessor]){
+        for (auto it = succ_begin(&BB), et = succ_end(&BB); it != et; ++it){
+          BasicBlock* successor = *it;
+          for (Value* v : top[successor]){
             bottom[&BB].insert(v);
           }
         }
         //ovde ide unija skupova pa razlika skupova pa test jesu li jednaki ne mogu to sada vise
+        //Pomocni set je potreban zbog nacina kako funckionisu set_union itd.
+        std::set<Value*> pomocni1;
+        std::set_difference(bottom[&BB].begin(),bottom[&BB].end(),defVar[&BB].begin(),defVar[&BB].end(),pomocni1.begin());
+        std::set<Value*> pomocni2;
+        std::set_union(usedVar[&BB].begin(),usedVar[&BB].end(),pomocni1.begin(),pomocni1.end(),pomocni2.begin());
+        top[&BB]= pomocni2;
+
+        //Demorgan !(stariB == noviB && stariT == noviT)
+        if(top_ != top[&BB] || bottom_ != bottom[&BB])
+        {
+            hasChanges = true;
+        }
       }
     } while (hasChanges);
   };
