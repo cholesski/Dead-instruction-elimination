@@ -47,7 +47,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   void InitializeVariableSets(BasicBlock* Current){
     for (Instruction &Instr : *Current) {
       // Instr.printAsOperand(errs());
-      Instr.print(errs());
+      //Instr.print(errs());
         if (isa<LoadInst>(&Instr)) {
           defVar[Current].insert(&Instr);
           usedVar[Current].insert(Instr.getOperand(0));
@@ -99,9 +99,9 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         //ovde ide unija skupova pa razlika skupova pa test jesu li jednaki ne mogu to sada vise
         //Pomocni set je potreban zbog nacina kako funckionisu set_union itd.
         std::set<Value*> pomocni1;
-        std::set_difference(bottom[&BB].begin(),bottom[&BB].end(),defVar[&BB].begin(),defVar[&BB].end(),pomocni1.begin());
+        std::set_difference(bottom[&BB].begin(),bottom[&BB].end(),defVar[&BB].begin(),defVar[&BB].end(),std::inserter(pomocni1, pomocni1.begin()));
         std::set<Value*> pomocni2;
-        std::set_union(usedVar[&BB].begin(),usedVar[&BB].end(),pomocni1.begin(),pomocni1.end(),pomocni2.begin());
+        std::set_union(usedVar[&BB].begin(),usedVar[&BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
         top[&BB]= pomocni2;
 
         //Demorgan !(stariB == noviB && stariT == noviT)
@@ -111,6 +111,14 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         }
       }
     } while (hasChanges);
+    for(auto it : top)
+    {
+      for(auto p= it.second.begin();p!= it.second.end();p++)
+      {
+        errs() << *p <<'\n';
+      }
+      errs() <<'\n';
+    }
   };
 
   void EliminateUnusedVariables(Function &F) {};
@@ -120,7 +128,9 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     for (BasicBlock &BB : F) {
       // BB.print(errs());
       InitializeVariableSets(&BB);
+
     }
+    GlobalLivenessAnalysis(F);
     // printMap();
     return false;
   }
