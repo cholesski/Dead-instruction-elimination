@@ -1,4 +1,5 @@
 #include "llvm/ADT/Statistic.h"
+#include "llvm/CodeGen/AssignmentTrackingAnalysis.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
@@ -18,6 +19,8 @@
 #include <unordered_map>
 #include <algorithm>
 #include <iterator>
+#include <unordered_set>
+#include <bits/stdc++.h>
 
 using namespace llvm;
 
@@ -73,54 +76,60 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
 }
 
-/*ovo prolazi kompilaciju ali to sto nije zavrseno nije testirano i 99.99% ne radi dobro to boze moj idem da spavam*/
+
   void GlobalLivenessAnalysis(Function &F) {
     OurCFG *CFG = new OurCFG(F);
-    CFG->CreateTransposeCFG();
+    CFG->CreateTransposeCFG(F);
     for (BasicBlock &BB : F){
       InitializeVariableSets(&BB);
+      // BB.print(errs());
     }
     bool hasChanges = false;
+    std::vector<BasicBlock*> reverseBB = CFG->GetTraverseOrder();
+    // for (BasicBlock* BB : reverseBB){
+    //   BB->print(errs());
+    // }
+    //ovo za sajt primer radi u 3 iteracije PROVERITI JEL TO OKEJ 
     do {
       hasChanges = false;
-      for (BasicBlock& BB : F){
+      for(BasicBlock *BB : reverseBB){
         //temporary variables 
-        std::set<Value*> top_ = *(new std::set<Value*>(top[&BB]));
-        std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));
-        /*sad tek vidim i mislim da se ovaj graf ne pravi dobro jer on ide redom kroz BB i samo dodaje linearno mesto 
-        da uvezuje successore i predecessore*/
-        /*ovo je odvratno i treba bolje da se uradi*/
-        for (auto it = succ_begin(&BB), et = succ_end(&BB); it != et; ++it){
+        // BB->print(errs());
+        std::set<Value*> top_ = *(new std::set<Value*>(top[BB]));
+        std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[BB]));
+
+        for (auto it = succ_begin(BB), et = succ_end(BB); it != et; ++it){
           BasicBlock* successor = *it;
           for (Value* v : top[successor]){
-            bottom[&BB].insert(v);
+            bottom[BB].insert(v);
           }
         }
-        //ovde ide unija skupova pa razlika skupova pa test jesu li jednaki ne mogu to sada vise
+
         //Pomocni set je potreban zbog nacina kako funckionisu set_union itd.
         std::set<Value*> pomocni1;
-        std::set_difference(bottom[&BB].begin(),bottom[&BB].end(),defVar[&BB].begin(),defVar[&BB].end(),std::inserter(pomocni1, pomocni1.begin()));
+        std::set_difference(bottom[BB].begin(),bottom[BB].end(),defVar[BB].begin(),defVar[BB].end(),std::inserter(pomocni1, pomocni1.begin()));
         std::set<Value*> pomocni2;
-        std::set_union(usedVar[&BB].begin(),usedVar[&BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
-        top[&BB]= pomocni2;
+        std::set_union(usedVar[BB].begin(),usedVar[BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
+        top[BB]= pomocni2;
 
         //Demorgan !(stariB == noviB && stariT == noviT)
-        if(top_ != top[&BB] || bottom_ != bottom[&BB])
+        if(top_ != top[BB] || bottom_ != bottom[BB])
         {
             hasChanges = true;
         }
       }
-    } while (hasChanges);
-    for(auto it : top)
-    {
-      for(auto p= it.second.begin();p!= it.second.end();p++)
-      {
-        errs() << *p <<'\n';
-      }
-      errs() <<'\n';
-    }
+    } while (!hasChanges);
+    // for(auto it : top)
+    // {
+    //   for (Value* v : it.second){
+    //     errs() << v->getValueID() << " " << v->getValueName() << " " << v->getName();
+    //     errs() << "\n";
+    //   }
+    //   errs() <<'\n';
+    // }
   };
 
+  //TODO SLEDECE :
   void EliminateUnusedVariables(Function &F) {};
 
   

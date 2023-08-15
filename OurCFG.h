@@ -1,7 +1,3 @@
-//
-// Created by strahinja on 4/20/23.
-//
-
 #ifndef LLVM_PROJECT_OURCFG_H
 #define LLVM_PROJECT_OURCFG_H
 
@@ -20,12 +16,14 @@ private:
   std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> TransposeAdjacencyList;
   std::unordered_set<BasicBlock *> Visited;
   BasicBlock *StartBlock;
+  BasicBlock *EndBlock;
 
   void CreateCFG(Function &F);
   void DFS(BasicBlock *Current);
 public:
   OurCFG(Function &F);
-  void CreateTransposeCFG();
+  std::vector<BasicBlock*> GetTraverseOrder();
+  void CreateTransposeCFG(Function &F);
   void TraverseGraph();
   bool IsReachable(BasicBlock *);
 };

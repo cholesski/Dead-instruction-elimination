@@ -4,8 +4,14 @@
 
 #include "OurCFG.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cassert>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <queue>
 
 OurCFG::OurCFG(llvm::Function &F)
 {
@@ -21,6 +27,7 @@ void OurCFG::CreateCFG(llvm::Function &F)
     for (BasicBlock *Successor : successors(&BB)) {
       AdjacencyList[&BB].push_back(Successor);
     }
+    EndBlock = &BB;
   }
 }
 
@@ -31,14 +38,12 @@ void OurCFG::CreateCFG(llvm::Function &F)
 radim bolje 
 ovo napravi normalan graf i onda uzima iz vektora i usmerava ih nazad ka clanu mape
 i btw napravice skroz novi graf u memoriji odvojen*/
-void OurCFG::CreateTransposeCFG()
+void OurCFG::CreateTransposeCFG(llvm::Function &F)
 {
-  assert(!AdjacencyList.empty());
-  for (auto pair : AdjacencyList){
-    BasicBlock* BB = pair.first;
-    std::vector<BasicBlock*> succ = pair.second;
-    for (BasicBlock* s : succ){
-      TransposeAdjacencyList[s].push_back(BB);
+  for(BasicBlock &BB : F) {
+    TransposeAdjacencyList[&BB] = {};
+    for (BasicBlock *Predecessor : predecessors(&BB)) {
+      TransposeAdjacencyList[&BB].push_back(Predecessor);
     }
   }
 }
@@ -59,6 +64,33 @@ void OurCFG::DFS(llvm::BasicBlock *Current)
   }
 }
 
+std::vector<BasicBlock*> OurCFG::GetTraverseOrder()
+{
+  std::queue<BasicBlock*> q;
+  std::unordered_set<BasicBlock*> returnVal;
+
+  q.push(EndBlock);
+  returnVal.insert(EndBlock);
+  while(!q.empty()){
+    BasicBlock* Current = q.front();
+    // errs() << "[CURRENT] : \n";
+    // Current->print(errs());
+    q.pop();
+    for (BasicBlock* BB : predecessors(Current)){
+      // errs() << "[tekuci predecesor] :\n";
+      // BB->print(errs());
+      if (returnVal.find(BB) == returnVal.end()){
+        returnVal.insert(BB);
+        q.push(BB);
+        // errs() << "[dodao sam predecesora] : \n";
+        // BB->print(errs());
+      }
+    }
+  }
+  std::vector<BasicBlock*> vc(returnVal.begin(), returnVal.end());
+  reverse(vc.begin(), vc.end());
+  return vc;
+}
 
 bool OurCFG::IsReachable(llvm::BasicBlock *BB)
 {
