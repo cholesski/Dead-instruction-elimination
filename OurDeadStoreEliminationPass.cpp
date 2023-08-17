@@ -130,9 +130,44 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   };
 
   //TODO SLEDECE :
-  void EliminateUnusedVariables(Function &F) {};
+  void EliminateUnusedVariables(Function &F)
+  {
+    for(BasicBlock &BB : F)
+    {
+      std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
+      //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
+      for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
+      {
+        Instruction *Instr = &*In;
+        //Provera da li je instukcija binarni operator(+-*/...)
+        if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
+        {
+          Value *result = Operacija->getOperand(0);
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
+            // uz to da smo sigurni da b ili c nisu konstante jer konstante ne treba da ubacujemo u kod
+            for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
+              {
+                Value* var = *operand;
+                if(!isa<Constant>(var))
+                {
+                  bottom_.insert(var);
+                }
+              }
+          }else
+            {
+              Instr->eraseFromParent();
+              continue;
+            }
+        }
+        //Isto to za load instrukciju
+        //Isto za store inst
+        //Isto za call instrukcije
 
-  
+      }
+    }
+  }
   bool runOnFunction(Function &F)  {
     for (BasicBlock &BB : F) {
       // BB.print(errs());
