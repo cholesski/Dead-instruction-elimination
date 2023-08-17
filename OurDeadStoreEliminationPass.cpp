@@ -5,6 +5,8 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Instruction.h"
@@ -36,15 +38,15 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   std::unordered_map<BasicBlock*, std::set<Value*>> top; //skup promenljivih koje su zive na izlazu iz basic bloka
   std::unordered_map<BasicBlock*, std::set<Value*>> bottom; //skup promenljivih koje su zive na ulazu u basic blok 
 
-  void printMap(std::unordered_map<BasicBlock*, std::set<Value*>> myMap){
-    for(auto pair : myMap){
-      auto bb = pair.first;
-      auto var = pair.second;
-      for (auto v : var){
-        errs() << v->getName() << "\n";
-      }
-   }
-  }
+  // void printMap(std::unordered_map<BasicBlock*, std::set<Value*>> myMap){
+  //   for(auto pair : myMap){
+  //     auto bb = pair.first;
+  //     auto var = pair.second;
+  //     for (auto v : var){
+  //       errs() << v->getName() << "\n";
+  //     }
+  //  }
+  // }
 
 
   void InitializeVariableSets(BasicBlock* Current){
@@ -94,7 +96,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
       hasChanges = false;
       for(BasicBlock *BB : reverseBB){
         //temporary variables 
-        // BB->print(errs());
+        BB->print(errs());
         std::set<Value*> top_ = *(new std::set<Value*>(top[BB]));
         std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[BB]));
 
@@ -127,56 +129,98 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     //   }
     //   errs() <<'\n';
     // }
-  };
+    for (auto p : bottom){
+      for (Value* v : p.second){
+        errs() << v << '\n';
+      }
+      errs() << "*****************\n";
+    }
 
-  //TODO SLEDECE :
-  void EliminateUnusedVariables(Function &F)
-  {
-    for(BasicBlock &BB : F)
-    {
-      std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
-      //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
-      for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
-      {
-        Instruction *Instr = &*In;
-        //Provera da li je instukcija binarni operator(+-*/...)
-        if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
-        {
-          Value *result = Operacija->getOperand(0);
-          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
-          {
-            bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
-            // uz to da smo sigurni da b ili c nisu konstante jer konstante ne treba da ubacujemo u kod
-            for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
-              {
-                Value* var = *operand;
-                if(!isa<Constant>(var))
-                {
-                  bottom_.insert(var);
-                }
-              }
-          }else
-            {
-              Instr->eraseFromParent();
-              continue;
-            }
+  //on izdvaja ove instrukcije i ispise ali ne izbrise ih iz IR-a i kad prodje kroz
+  //petlju baci neki mnogo ruzan i mnogo cudan segfault
+  //global elimination
+  std::unordered_set<Instruction *> InstructionsRemove;
+  for (BasicBlock &BB : F) {
+      // bool deadInstruction = false;
+      BB.print(errs());
+
+      //proveravamo da li je promenljiva u koju se cuva nova vrednost ziva na izlazu tj u bottom skupu 
+      //i ako nije brisemo
+      for (Instruction &Instr : BB) {
+        if (Instr.getType() != Type::getVoidTy(Instr.getContext())) {
+          bool deadInstruction = false;
+          if (isa<LoadInst>(&Instr)) {
+            deadInstruction = bottom[&BB].find(&Instr) == bottom[&BB].end();
+          }else if (isa<StoreInst>(&Instr)) {
+            Value* v = Instr.getOperand(0);
+            deadInstruction = bottom[&BB].find(v) == bottom[&BB].end();
+          }
+          // } else {
+          //   int NumOfOperands = (int)Instr.getNumOperands();
+          //   //prolazimo kroz sve promenljive u izrazu 
+          //   for (int i = 0; i < NumOfOperands; i++) {
+          //     Value* v = Instr.getOperand(i);
+          //     deadInstruction = bottom[&BB].find(v) == bottom[&BB].end();
+          //   }
+          errs() << "[deadInstruction : ] " << deadInstruction << "\n";
+          if (deadInstruction){
+            InstructionsRemove.insert(&Instr);
+          }
+          deadInstruction = false;
         }
-        //Isto to za load instrukciju
-        //Isto za store inst
-        //Isto za call instrukcije
-
       }
     }
-  }
-  bool runOnFunction(Function &F)  {
-    for (BasicBlock &BB : F) {
-      // BB.print(errs());
-      InitializeVariableSets(&BB);
-
+    for (Instruction *i : InstructionsRemove){
+      i->print(errs());
+      i->eraseFromParent();
     }
+  };
+
+
+  // //TODO SLEDECE :
+  // void EliminateUnusedVariables(Function &F)
+  // {
+  //   for(BasicBlock &BB : F)
+  //   {
+  //     std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
+  //     //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
+  //     for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
+  //     {
+  //       Instruction *Instr = &*In;
+  //       //Provera da li je instukcija binarni operator(+-*/...)
+  //       if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
+  //       {
+  //         Value *result = Operacija->getOperand(0);
+  //         if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+  //         {
+  //           bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
+  //           // uz to da smo sigurni da b ili c nisu konstante jer konstante ne treba da ubacujemo u kod
+  //           for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
+  //             {
+  //               Value* var = *operand;
+  //               if(!isa<Constant>(var))
+  //               {
+  //                 bottom_.insert(var);
+  //               }
+  //             }
+  //         }else
+  //           {
+  //             Instr->eraseFromParent();
+  //             continue;
+  //           }
+  //       }
+  //       //Isto to za load instrukciju
+  //       //Isto za store inst
+  //       //Isto za call instrukcije
+  //       //alloca
+
+  //     }
+  //   }
+  // }
+  bool runOnFunction(Function &F) override{
     GlobalLivenessAnalysis(F);
     // printMap();
-    return false;
+    return true;
   }
 
 };
