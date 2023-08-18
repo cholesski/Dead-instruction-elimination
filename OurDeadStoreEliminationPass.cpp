@@ -132,17 +132,21 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   //TODO SLEDECE :
   void EliminateUnusedVariables(Function &F)
   {
+    std::set<Instruction*> brisanje;
     for(BasicBlock &BB : F)
     {
       std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
       //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
+      
       for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
       {
         Instruction *Instr = &*In;
+        Instr->print(errs());
+        errs()<<"\n";
         //Provera da li je instukcija binarni operator(+-*/...)
         if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
         {
-          Value *result = Operacija->getOperand(0);
+          Value *result = Operacija;
           if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
           {
             bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
@@ -152,29 +156,80 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
                 Value* var = *operand;
                 if(!isa<Constant>(var))
                 {
-                  bottom_.insert(var);
+                  bottom_.insert(var);//Dodavanje u skup zivih
                 }
               }
           }else
             {
-              Instr->eraseFromParent();
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
               continue;
             }
         }
         //Isto to za load instrukciju
+        if(auto load = dyn_cast<LoadInst>(Instr))
+        {
+          Value *result = load;
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);
+            Value *operand = load->getPointerOperand();
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }else
+            {
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              continue;
+            }
+        }
         //Isto za store inst
-        //Isto za call instrukcije
+         if(auto store = dyn_cast<StoreInst>(Instr))
+        {
+          Value *result = store->getPointerOperand();
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);
+            Value *operand = store->getValueOperand();
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }else
+            {
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              continue;
+            }
+        }
+        //Posto call instrukcija ne moze da se brise zato sto ne znamo da li funckija ima bocne efekte onda samo dodajemo operande u skup
+        if(auto call = dyn_cast<CallInst>(Instr))
+        {
 
+          for(auto arg=call->arg_begin(),argE = call->arg_end();arg!=argE;++arg){
+            Value* operand = *arg;
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }
+        }
       }
+    }
+    for(auto I : brisanje)//Brisanje iz skupa za brisanje
+    {
+      I->eraseFromParent();
     }
   }
   bool runOnFunction(Function &F)  {
+
     for (BasicBlock &BB : F) {
       // BB.print(errs());
-      InitializeVariableSets(&BB);
+      //InitializeVariableSets(&BB);
 
     }
     GlobalLivenessAnalysis(F);
+    errs()<< "Prosla Globalna"<<"\n";
+    EliminateUnusedVariables(F);
     // printMap();
     return false;
   }
