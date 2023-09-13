@@ -135,6 +135,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     std::set<Instruction*> brisanje;
     for(BasicBlock &BB : F)
     {
+      errs()<<"POCETAK BASIC BLOKA\n";
       std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
       //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
       
@@ -161,12 +162,13 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
               }
           }else
             {
+              errs()<<"BRISANJE"<<"\n";
               brisanje.insert(Instr);//Dodavanje u skup za brisanje
               continue;
             }
         }
         //Isto to za load instrukciju
-        if(auto load = dyn_cast<LoadInst>(Instr))
+        else if(auto load = dyn_cast<LoadInst>(Instr))
         {
           Value *result = load;
           if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
@@ -179,12 +181,14 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
             }
           }else
             {
+              errs()<<"BRISANJE"<<"\n";
               brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              // errs()<<"BRISANJE PROSLO"<<"\n";
               continue;
             }
         }
         //Isto za store inst
-         if(auto store = dyn_cast<StoreInst>(Instr))
+        else if(auto store = dyn_cast<StoreInst>(Instr))
         {
           Value *result = store->getPointerOperand();
           if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
@@ -202,7 +206,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
             }
         }
         //Posto call instrukcija ne moze da se brise zato sto ne znamo da li funckija ima bocne efekte onda samo dodajemo operande u skup
-        if(auto call = dyn_cast<CallInst>(Instr))
+        else if(auto call = dyn_cast<CallInst>(Instr))
         {
 
           for(auto arg=call->arg_begin(),argE = call->arg_end();arg!=argE;++arg){
@@ -212,7 +216,15 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
           }
+        }else //OSTALE INSTRUKCIJE Posto su to specifcne instrukcije ne znam da li smemo da ih brisemo tako da samo dodajemo operande u skup
+        {
+          for(auto it = Instr->op_begin(),e = Instr->op_end(); it!=e;++it)
+          {
+            Value *operand = *it;
+            bottom_.insert(operand);
+          }
         }
+
       }
     }
     for(auto I : brisanje)//Brisanje iz skupa za brisanje
