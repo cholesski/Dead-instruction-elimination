@@ -1,11 +1,19 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/AssignmentTrackingAnalysis.h"
+#include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
+#include "llvm/ProfileData/InstrProf.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Errc.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Instructions.h"
@@ -18,6 +26,7 @@
 #include <codecvt>
 #include <iostream>
 #include <set>
+#include <type_traits>
 #include <unordered_map>
 #include <algorithm>
 #include <iterator>
@@ -38,39 +47,37 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   std::unordered_map<BasicBlock*, std::set<Value*>> top; //skup promenljivih koje su zive na izlazu iz basic bloka
   std::unordered_map<BasicBlock*, std::set<Value*>> bottom; //skup promenljivih koje su zive na ulazu u basic blok 
 
-  // void printMap(std::unordered_map<BasicBlock*, std::set<Value*>> myMap){
-  //   for(auto pair : myMap){
-  //     auto bb = pair.first;
-  //     auto var = pair.second;
-  //     for (auto v : var){
-  //       errs() << v->getName() << "\n";
-  //     }
-  //  }
-  // }
+  //obrisala printMap jer nam ne treba
 
-
+  //bila je ovde greska pa sam to ispravila
   void InitializeVariableSets(BasicBlock* Current){
     for (Instruction &Instr : *Current) {
       // Instr.printAsOperand(errs());
       //Instr.print(errs());
         if (isa<LoadInst>(&Instr)) {
           defVar[Current].insert(&Instr);
-          usedVar[Current].insert(Instr.getOperand(0));
+          if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
+            usedVar[Current].insert(Instr.getOperand(0));
+          }
           // errs() << "[LOAD INSTR OPERAND] : \n" << Instr.getOperand(0)->getName() << "\n";
           // errs() << "_______________________\n";
         }
         else if (isa<StoreInst>(&Instr)) {
+          if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
             usedVar[Current].insert(Instr.getOperand(0));
-            defVar[Current].insert(Instr.getOperand(1));
+          }
+          defVar[Current].insert(Instr.getOperand(1));
             // errs() << "[STORE INSTR OPERANDS] : \n" << Instr.getOperand(0)->getName() << "\n";
             // errs() << Instr.getOperand(1)->getName() << "\n";
             // errs() << "_______________________\n";
         }
         else {
           int NumOfOperands = (int)Instr.getNumOperands();
+          defVar[Current].insert(&Instr);
           for (int i = 0; i < NumOfOperands; i++) {
-            defVar[Current].insert(&Instr);
-            usedVar[Current].insert(Instr.getOperand(i));
+            if (defVar[Current].find(Instr.getOperand(i)) == defVar[Current].end()){
+              usedVar[Current].insert(Instr.getOperand(i));
+            }
             // errs() << "[OTHER INSTR OPERANDS] : \n" << Instr.getOperand(i)->getName() << "\n";
             // errs() << "_______________________\n";
             }
@@ -92,11 +99,12 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     //   BB->print(errs());
     // }
     //ovo za sajt primer radi u 3 iteracije PROVERITI JEL TO OKEJ 
+    int i = 0;
     do {
       hasChanges = false;
       for(BasicBlock *BB : reverseBB){
         //temporary variables 
-        BB->print(errs());
+        // BB->print(errs());
         std::set<Value*> top_ = *(new std::set<Value*>(top[BB]));
         std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[BB]));
 
@@ -113,113 +121,168 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         std::set<Value*> pomocni2;
         std::set_union(usedVar[BB].begin(),usedVar[BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
         top[BB]= pomocni2;
-
+        BB->print(errs());
+        errs() << "[top]:\n";
+        for (Value* v : top[BB]){
+          v->printAsOperand(errs());
+          errs() << '\n';
+        }
+        errs() << "[bottom]:\n";
+        for (Value* v : bottom[BB]){
+          v->printAsOperand(errs());
+          errs() << '\n';
+        }
+        errs() << "++++++++++++++\n";
         //Demorgan !(stariB == noviB && stariT == noviT)
         if(top_ != top[BB] || bottom_ != bottom[BB])
         {
             hasChanges = true;
         }
+        errs() << "?????";
       }
-    } while (!hasChanges);
-    // for(auto it : top)
-    // {
-    //   for (Value* v : it.second){
-    //     errs() << v->getValueID() << " " << v->getValueName() << " " << v->getName();
-    //     errs() << "\n";
-    //   }
-    //   errs() <<'\n';
-    // }
-    for (auto p : bottom){
-      for (Value* v : p.second){
-        errs() << v << '\n';
+      i++;
+    } while (hasChanges);
+    errs() << i << '\n';
+  };
+
+  /*ovaj tvoj kod sam samo promenila ime funkcije nista nisam dirala*/
+  void EliminateUnusedVariablesLocal(Function &F)
+  {
+    std::set<Instruction*> brisanje;
+    for(BasicBlock &BB : F)
+    {
+      errs()<<"POCETAK BASIC BLOKA\n";
+      std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
+      //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
+      
+      for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
+      {
+        Instruction *Instr = &*In;
+        Instr->print(errs());
+        errs()<<"\n";
+        //Provera da li je instukcija binarni operator(+-*/...)
+        if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
+        {
+          Value *result = Operacija;
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
+            // uz to da smo sigurni da b ili c nisu konstante jer konstante ne treba da ubacujemo u kod
+            for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
+              {
+                Value* var = *operand;
+                if(!isa<Constant>(var))
+                {
+                  bottom_.insert(var);//Dodavanje u skup zivih
+                }
+              }
+          }else
+            {
+              errs()<<"BRISANJE"<<"\n";
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              continue;
+            }
+        }
+        //Isto to za load instrukciju
+        else if(auto load = dyn_cast<LoadInst>(Instr))
+        {
+          Value *result = load;
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);
+            Value *operand = load->getPointerOperand();
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }else
+            {
+              errs()<<"BRISANJE"<<"\n";
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              // errs()<<"BRISANJE PROSLO"<<"\n";
+              continue;
+            }
+        }
+        //Isto za store inst
+        else if(auto store = dyn_cast<StoreInst>(Instr))
+        {
+          Value *result = store->getPointerOperand();
+          if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
+          {
+            bottom_.erase(result);
+            Value *operand = store->getValueOperand();
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }else
+            {
+              brisanje.insert(Instr);//Dodavanje u skup za brisanje
+              continue;
+            }
+        }
+        //Posto call instrukcija ne moze da se brise zato sto ne znamo da li funckija ima bocne efekte onda samo dodajemo operande u skup
+        else if(auto call = dyn_cast<CallInst>(Instr))
+        {
+
+          for(auto arg=call->arg_begin(),argE = call->arg_end();arg!=argE;++arg){
+            Value* operand = *arg;
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            {
+              bottom_.insert(operand);//Dodavanje u skup zivih
+            }
+          }
+        }else //OSTALE INSTRUKCIJE Posto su to specifcne instrukcije ne znam da li smemo da ih brisemo tako da samo dodajemo operande u skup
+        {
+          for(auto it = Instr->op_begin(),e = Instr->op_end(); it!=e;++it)
+          {
+            Value *operand = *it;
+            bottom_.insert(operand);
+          }
+        }
+
       }
-      errs() << "*****************\n";
     }
+    for(auto I : brisanje)//Brisanje iz skupa za brisanje
+    {
+      I->eraseFromParent();
+    }
+  }
 
-  //on izdvaja ove instrukcije i ispise ali ne izbrise ih iz IR-a i kad prodje kroz
-  //petlju baci neki mnogo ruzan i mnogo cudan segfault
-  //global elimination
-  std::unordered_set<Instruction *> InstructionsRemove;
-  for (BasicBlock &BB : F) {
-      // bool deadInstruction = false;
-      BB.print(errs());
-
-      //proveravamo da li je promenljiva u koju se cuva nova vrednost ziva na izlazu tj u bottom skupu 
-      //i ako nije brisemo
+  //u sustini gleda da li je promenljiva u koju se storuje vrednost ziva na izlazu iz BB 
+  //i ako nije brise taj store
+  //trebalo bi da se doda provera samo ako imamo slucajeve tipa
+  //store 5 x 
+  //pa se x koristi
+  //a store se ne koristi u drugim BB, onda samo da se doda da ne brise
+  void EliminateUnusedVariablesGlobal(Function &F)
+  {
+    std::set<Instruction*> deadStore;
+    for (BasicBlock &BB : F) {
       for (Instruction &Instr : BB) {
-        if (Instr.getType() != Type::getVoidTy(Instr.getContext())) {
-          bool deadInstruction = false;
-          if (isa<LoadInst>(&Instr)) {
-            deadInstruction = bottom[&BB].find(&Instr) == bottom[&BB].end();
-          }else if (isa<StoreInst>(&Instr)) {
-            Value* v = Instr.getOperand(0);
-            deadInstruction = bottom[&BB].find(v) == bottom[&BB].end();
-          }
-          // } else {
-          //   int NumOfOperands = (int)Instr.getNumOperands();
-          //   //prolazimo kroz sve promenljive u izrazu 
-          //   for (int i = 0; i < NumOfOperands; i++) {
-          //     Value* v = Instr.getOperand(i);
-          //     deadInstruction = bottom[&BB].find(v) == bottom[&BB].end();
-          //   }
-          errs() << "[deadInstruction : ] " << deadInstruction << "\n";
-          if (deadInstruction){
-            InstructionsRemove.insert(&Instr);
-          }
-          deadInstruction = false;
+        if (isa<StoreInst>(&Instr) && bottom[&BB].find(Instr.getOperand(1)) == bottom[&BB].end()) {
+          deadStore.insert(&Instr);
         }
       }
     }
-    for (Instruction *i : InstructionsRemove){
-      i->print(errs());
-      i->eraseFromParent();
+    for (auto I : deadStore){
+      I->print(errs());
+      //nesto me kulira i ne menja mi IR, tj uopste ne izbrise ove instrukcije a ispise ih lepo 
+      I->eraseFromParent();
+      errs() << '\n';
     }
-  };
+  }
 
+  bool runOnFunction(Function &F)  {
 
-  // //TODO SLEDECE :
-  // void EliminateUnusedVariables(Function &F)
-  // {
-  //   for(BasicBlock &BB : F)
-  //   {
-  //     std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
-  //     //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
-  //     for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
-  //     {
-  //       Instruction *Instr = &*In;
-  //       //Provera da li je instukcija binarni operator(+-*/...)
-  //       if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
-  //       {
-  //         Value *result = Operacija->getOperand(0);
-  //         if(bottom_.find(result) != bottom_.end())//Provera da li se nalazi u dosadasnjem skupu promenljivih koje se koriste
-  //         {
-  //           bottom_.erase(result);//Ako se nalazi sklanjamo iz skupa a njegove operande dodajemo u skup koriscenjih(zivih) a = b + c (a sklanjamo , b i c dodajemo)
-  //           // uz to da smo sigurni da b ili c nisu konstante jer konstante ne treba da ubacujemo u kod
-  //           for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
-  //             {
-  //               Value* var = *operand;
-  //               if(!isa<Constant>(var))
-  //               {
-  //                 bottom_.insert(var);
-  //               }
-  //             }
-  //         }else
-  //           {
-  //             Instr->eraseFromParent();
-  //             continue;
-  //           }
-  //       }
-  //       //Isto to za load instrukciju
-  //       //Isto za store inst
-  //       //Isto za call instrukcije
-  //       //alloca
+    for (BasicBlock &BB : F) {
+      // BB.print(errs());
+      //InitializeVariableSets(&BB);
 
-  //     }
-  //   }
-  // }
-  bool runOnFunction(Function &F) override{
+    }
     GlobalLivenessAnalysis(F);
-    // printMap();
+    errs()<< "Prosla Globalna"<<"\n";
+    EliminateUnusedVariablesGlobal(F);
     return true;
   }
 
