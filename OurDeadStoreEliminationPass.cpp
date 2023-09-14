@@ -7,6 +7,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/Use.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
 #include "llvm/ProfileData/InstrProf.h"
@@ -251,17 +252,38 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
 
   //u sustini gleda da li je promenljiva u koju se storuje vrednost ziva na izlazu iz BB 
   //i ako nije brise taj store
-  //trebalo bi da se doda provera samo ako imamo slucajeve tipa
-  //store 5 x 
-  //pa se x koristi
-  //a store se ne koristi u drugim BB, onda samo da se doda da ne brise
+  //store i32 0, ptr %1, align 4 <- sta je %1 jel to neka default vrednost?
+  //vidim da se uvek nalazi na pocetku funkcije a promenljive krecu od %2
+  //treba da se doda da to ne sme da se brise uopste
   void EliminateUnusedVariablesGlobal(Function &F)
   {
     std::set<Instruction*> deadStore;
+    //store 5 x 
+    //pa se x koristi
+    //a store se ne koristi u drugim BB, onda ne smemo da ga brisemo 
+    //za to se koristi ova mapa
+    std::map<BasicBlock*, std::set<Value*>> usedInBlock;
     for (BasicBlock &BB : F) {
-      for (Instruction &Instr : BB) {
-        if (isa<StoreInst>(&Instr) && bottom[&BB].find(Instr.getOperand(1)) == bottom[&BB].end()) {
-          deadStore.insert(&Instr);
+      usedInBlock[&BB] = *(new std::set<Value*>());
+      for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In){
+        Instruction *Instr = &*In;
+        if(auto Operacija = dyn_cast<BinaryOperator>(Instr)){
+          for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand){
+            Value* var = *operand;
+            if(!isa<Constant>(var)){
+              usedInBlock[&BB].insert(var);
+            }
+          }
+        } else if(auto load = dyn_cast<LoadInst>(Instr)){
+          Value *operand = load->getPointerOperand();
+          usedInBlock[&BB].insert(operand);
+        } else if(auto store = dyn_cast<StoreInst>(Instr)){
+          Value *result = store->getPointerOperand();
+          if (bottom[&BB].find(result) == bottom[&BB].end() && usedInBlock[&BB].find(result) == usedInBlock[&BB].end()) {
+            deadStore.insert(Instr);
+          }
+          Value *operand = store->getValueOperand();
+          usedInBlock[&BB].insert(operand);
         }
       }
     }
