@@ -1,10 +1,20 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/AssignmentTrackingAnalysis.h"
+#include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
+#include "llvm/ProfileData/InstrProf.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Instruction.h"
@@ -16,6 +26,7 @@
 #include <codecvt>
 #include <iostream>
 #include <set>
+#include <type_traits>
 #include <unordered_map>
 #include <algorithm>
 #include <iterator>
@@ -36,39 +47,37 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   std::unordered_map<BasicBlock*, std::set<Value*>> top; //skup promenljivih koje su zive na izlazu iz basic bloka
   std::unordered_map<BasicBlock*, std::set<Value*>> bottom; //skup promenljivih koje su zive na ulazu u basic blok 
 
-  void printMap(std::unordered_map<BasicBlock*, std::set<Value*>> myMap){
-    for(auto pair : myMap){
-      auto bb = pair.first;
-      auto var = pair.second;
-      for (auto v : var){
-        errs() << v->getName() << "\n";
-      }
-   }
-  }
+  //obrisala printMap jer nam ne treba
 
-
+  //bila je ovde greska pa sam to ispravila
   void InitializeVariableSets(BasicBlock* Current){
     for (Instruction &Instr : *Current) {
       // Instr.printAsOperand(errs());
       //Instr.print(errs());
         if (isa<LoadInst>(&Instr)) {
           defVar[Current].insert(&Instr);
-          usedVar[Current].insert(Instr.getOperand(0));
+          if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
+            usedVar[Current].insert(Instr.getOperand(0));
+          }
           // errs() << "[LOAD INSTR OPERAND] : \n" << Instr.getOperand(0)->getName() << "\n";
           // errs() << "_______________________\n";
         }
         else if (isa<StoreInst>(&Instr)) {
+          if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
             usedVar[Current].insert(Instr.getOperand(0));
-            defVar[Current].insert(Instr.getOperand(1));
+          }
+          defVar[Current].insert(Instr.getOperand(1));
             // errs() << "[STORE INSTR OPERANDS] : \n" << Instr.getOperand(0)->getName() << "\n";
             // errs() << Instr.getOperand(1)->getName() << "\n";
             // errs() << "_______________________\n";
         }
         else {
           int NumOfOperands = (int)Instr.getNumOperands();
+          defVar[Current].insert(&Instr);
           for (int i = 0; i < NumOfOperands; i++) {
-            defVar[Current].insert(&Instr);
-            usedVar[Current].insert(Instr.getOperand(i));
+            if (defVar[Current].find(Instr.getOperand(i)) == defVar[Current].end()){
+              usedVar[Current].insert(Instr.getOperand(i));
+            }
             // errs() << "[OTHER INSTR OPERANDS] : \n" << Instr.getOperand(i)->getName() << "\n";
             // errs() << "_______________________\n";
             }
@@ -90,6 +99,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     //   BB->print(errs());
     // }
     //ovo za sajt primer radi u 3 iteracije PROVERITI JEL TO OKEJ 
+    int i = 0;
     do {
       hasChanges = false;
       for(BasicBlock *BB : reverseBB){
@@ -111,26 +121,32 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         std::set<Value*> pomocni2;
         std::set_union(usedVar[BB].begin(),usedVar[BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
         top[BB]= pomocni2;
-
+        BB->print(errs());
+        errs() << "[top]:\n";
+        for (Value* v : top[BB]){
+          v->printAsOperand(errs());
+          errs() << '\n';
+        }
+        errs() << "[bottom]:\n";
+        for (Value* v : bottom[BB]){
+          v->printAsOperand(errs());
+          errs() << '\n';
+        }
+        errs() << "++++++++++++++\n";
         //Demorgan !(stariB == noviB && stariT == noviT)
         if(top_ != top[BB] || bottom_ != bottom[BB])
         {
             hasChanges = true;
         }
+        errs() << "?????";
       }
-    } while (!hasChanges);
-    // for(auto it : top)
-    // {
-    //   for (Value* v : it.second){
-    //     errs() << v->getValueID() << " " << v->getValueName() << " " << v->getName();
-    //     errs() << "\n";
-    //   }
-    //   errs() <<'\n';
-    // }
+      i++;
+    } while (hasChanges);
+    errs() << i << '\n';
   };
 
-  //TODO SLEDECE :
-  void EliminateUnusedVariables(Function &F)
+  /*ovaj tvoj kod sam samo promenila ime funkcije nista nisam dirala*/
+  void EliminateUnusedVariablesLocal(Function &F)
   {
     std::set<Instruction*> brisanje;
     for(BasicBlock &BB : F)
@@ -232,6 +248,31 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
       I->eraseFromParent();
     }
   }
+
+  //u sustini gleda da li je promenljiva u koju se storuje vrednost ziva na izlazu iz BB 
+  //i ako nije brise taj store
+  //trebalo bi da se doda provera samo ako imamo slucajeve tipa
+  //store 5 x 
+  //pa se x koristi
+  //a store se ne koristi u drugim BB, onda samo da se doda da ne brise
+  void EliminateUnusedVariablesGlobal(Function &F)
+  {
+    std::set<Instruction*> deadStore;
+    for (BasicBlock &BB : F) {
+      for (Instruction &Instr : BB) {
+        if (isa<StoreInst>(&Instr) && bottom[&BB].find(Instr.getOperand(1)) == bottom[&BB].end()) {
+          deadStore.insert(&Instr);
+        }
+      }
+    }
+    for (auto I : deadStore){
+      I->print(errs());
+      //nesto me kulira i ne menja mi IR, tj uopste ne izbrise ove instrukcije a ispise ih lepo 
+      I->eraseFromParent();
+      errs() << '\n';
+    }
+  }
+
   bool runOnFunction(Function &F)  {
 
     for (BasicBlock &BB : F) {
@@ -241,9 +282,8 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
     GlobalLivenessAnalysis(F);
     errs()<< "Prosla Globalna"<<"\n";
-    EliminateUnusedVariables(F);
-    // printMap();
-    return false;
+    EliminateUnusedVariablesGlobal(F);
+    return true;
   }
 
 };
