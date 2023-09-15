@@ -48,29 +48,20 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   std::unordered_map<BasicBlock*, std::set<Value*>> top; //skup promenljivih koje su zive na izlazu iz basic bloka
   std::unordered_map<BasicBlock*, std::set<Value*>> bottom; //skup promenljivih koje su zive na ulazu u basic blok 
 
-  //obrisala printMap jer nam ne treba
-
-  //bila je ovde greska pa sam to ispravila
+  //inicijalizuje defVar i usedVar skupove za BasicBlock
   void InitializeVariableSets(BasicBlock* Current){
     for (Instruction &Instr : *Current) {
-      // Instr.printAsOperand(errs());
-      //Instr.print(errs());
         if (isa<LoadInst>(&Instr)) {
           defVar[Current].insert(&Instr);
           if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
             usedVar[Current].insert(Instr.getOperand(0));
           }
-          // errs() << "[LOAD INSTR OPERAND] : \n" << Instr.getOperand(0)->getName() << "\n";
-          // errs() << "_______________________\n";
         }
         else if (isa<StoreInst>(&Instr)) {
           if (defVar[Current].find(Instr.getOperand(0)) == defVar[Current].end()){
             usedVar[Current].insert(Instr.getOperand(0));
           }
           defVar[Current].insert(Instr.getOperand(1));
-            // errs() << "[STORE INSTR OPERANDS] : \n" << Instr.getOperand(0)->getName() << "\n";
-            // errs() << Instr.getOperand(1)->getName() << "\n";
-            // errs() << "_______________________\n";
         }
         else {
           int NumOfOperands = (int)Instr.getNumOperands();
@@ -79,33 +70,24 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
             if (defVar[Current].find(Instr.getOperand(i)) == defVar[Current].end()){
               usedVar[Current].insert(Instr.getOperand(i));
             }
-            // errs() << "[OTHER INSTR OPERANDS] : \n" << Instr.getOperand(i)->getName() << "\n";
-            // errs() << "_______________________\n";
-            }
+          }
         }
     }
-}
-
+  }
 
   void GlobalLivenessAnalysis(Function &F) {
     OurCFG *CFG = new OurCFG(F);
     CFG->CreateTransposeCFG(F);
     for (BasicBlock &BB : F){
       InitializeVariableSets(&BB);
-      // BB.print(errs());
     }
     bool hasChanges = false;
     std::vector<BasicBlock*> reverseBB = CFG->GetTraverseOrder();
-    // for (BasicBlock* BB : reverseBB){
-    //   BB->print(errs());
-    // }
-    //ovo za sajt primer radi u 3 iteracije PROVERITI JEL TO OKEJ 
     int i = 0;
     do {
       hasChanges = false;
       for(BasicBlock *BB : reverseBB){
         //temporary variables 
-        // BB->print(errs());
         std::set<Value*> top_ = *(new std::set<Value*>(top[BB]));
         std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[BB]));
 
@@ -139,10 +121,11 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         {
             hasChanges = true;
         }
-        errs() << "?????";
+        errs() << "[kraj iteracije " << i << "]\n";
       }
       i++;
     } while (hasChanges);
+    //broj iteracija
     errs() << i << '\n';
   };
 
@@ -279,9 +262,11 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
           usedInBlock[&BB].insert(operand);
         } else if(auto store = dyn_cast<StoreInst>(Instr)){
           Value *result = store->getPointerOperand();
+      
           if (bottom[&BB].find(result) == bottom[&BB].end() && usedInBlock[&BB].find(result) == usedInBlock[&BB].end()) {
             deadStore.insert(Instr);
           }
+
           Value *operand = store->getValueOperand();
           usedInBlock[&BB].insert(operand);
         }
@@ -289,9 +274,27 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
     for (auto I : deadStore){
       I->print(errs());
-      //nesto me kulira i ne menja mi IR, tj uopste ne izbrise ove instrukcije a ispise ih lepo 
-      I->eraseFromParent();
       errs() << '\n';
+      I->eraseFromParent();
+    }
+  }
+
+  //brise nedostizne basic blokove
+  void EliminateUnreachableInstructions(Function &F){
+    OurCFG *CFG = new OurCFG(F);
+    CFG->TraverseGraph();
+    std::vector<BasicBlock *> BasicBlocksToRemove;
+
+    for(BasicBlock &BB : F) {
+      if (!CFG->IsReachable(&BB)) {
+        BasicBlocksToRemove.push_back(&BB);
+      }
+    }
+    if (BasicBlocksToRemove.size() > 0) {
+      InstructionRemoved = true;
+    }
+    for (BasicBlock *BasicBlockToRemove : BasicBlocksToRemove) {
+      BasicBlockToRemove->eraseFromParent();
     }
   }
 
@@ -305,6 +308,11 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     GlobalLivenessAnalysis(F);
     errs()<< "Prosla Globalna"<<"\n";
     EliminateUnusedVariablesGlobal(F);
+    errs() << "Prosla globalna eliminacija\n";
+    EliminateUnusedVariablesLocal(F);
+    errs() << "Prosla lokalna eliminacija\n";
+    EliminateUnreachableInstructions(F);
+    errs() << "PROSLO SVE";
     return true;
   }
 
@@ -313,4 +321,4 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
 
 
 char OurDeadStoreEliminationPass::ID = 1;
-static RegisterPass<OurDeadStoreEliminationPass> X("dead-store-elimination", "Our dead store elimination pass");
+static RegisterPass<OurDeadStoreEliminationPass> X("dead-instruction-elimination", "Our dead instruction elimination pass");
