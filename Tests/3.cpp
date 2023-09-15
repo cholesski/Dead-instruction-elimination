@@ -1,9 +1,10 @@
 #include <iostream>
 
-int x = 1; //dead store
+bool b = true; //dead store
 
 int main(){
-    x = 5;
-    std::cout << x;
+    b = false;
+    b = true;
+    std::cout << b << '\n';
     return 0;
 }
