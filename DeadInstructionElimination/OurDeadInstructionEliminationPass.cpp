@@ -155,7 +155,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
             for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
               {
                 Value* var = *operand;
-                if(!isa<Constant>(var))
+                if(!isa<Constant>(var) || isa<GlobalVariable>(var))
                 {
                   bottom_.insert(var);//Dodavanje u skup zivih
                 }
@@ -175,7 +175,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
           {
             bottom_.erase(result);
             Value *operand = load->getPointerOperand();
-            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
@@ -195,7 +195,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
           {
             bottom_.erase(result);
             Value *operand = store->getValueOperand();
-            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
@@ -211,7 +211,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
 
           for(auto arg=call->arg_begin(),argE = call->arg_end();arg!=argE;++arg){
             Value* operand = *arg;
-            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
