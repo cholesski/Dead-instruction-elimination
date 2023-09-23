@@ -7,7 +7,8 @@ int main(){
     z = 11;
     for (int i = 0; i < 0; i++){
         z += 3*y;
-        x = y; //dead store
+        x = 7; //dead store
+        std::cout<<"OVDE";
     }
     std::cout << z << '\n';
     x = 50;

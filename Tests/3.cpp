@@ -1,9 +1,9 @@
 #include <iostream>
 
-bool b = true; //dead store
+bool b = true; 
 
 int main(){
-    b = false;
+    b = false; //dead store
     b = true;
     std::cout << b << '\n';
     return 0;
