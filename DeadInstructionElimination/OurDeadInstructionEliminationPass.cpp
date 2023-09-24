@@ -83,7 +83,6 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
     bool hasChanges = false;
     std::vector<BasicBlock*> reverseBB = CFG->GetTraverseOrder();
-    int i = 0;
     do {
       hasChanges = false;
       for(BasicBlock *BB : reverseBB){
@@ -104,46 +103,28 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
         std::set<Value*> pomocni2;
         std::set_union(usedVar[BB].begin(),usedVar[BB].end(),pomocni1.begin(),pomocni1.end(),std::inserter(pomocni2, pomocni2.begin()));
         top[BB]= pomocni2;
-        BB->print(errs());
-        errs() << "[top]:\n";
-        for (Value* v : top[BB]){
-          v->printAsOperand(errs());
-          errs() << '\n';
-        }
-        errs() << "[bottom]:\n";
-        for (Value* v : bottom[BB]){
-          v->printAsOperand(errs());
-          errs() << '\n';
-        }
-        errs() << "++++++++++++++\n";
+        
         //Demorgan !(stariB == noviB && stariT == noviT)
         if(top_ != top[BB] || bottom_ != bottom[BB])
         {
             hasChanges = true;
         }
-        errs() << "[kraj iteracije " << i << "]\n";
       }
-      i++;
     } while (hasChanges);
-    //broj iteracija
-    errs() << i << '\n';
   };
 
   /*ovaj tvoj kod sam samo promenila ime funkcije nista nisam dirala*/
-  void EliminateUnusedVariablesLocal(Function &F)
+  void EliminateUnusedVariables(Function &F)
   {
     std::set<Instruction*> brisanje;
     for(BasicBlock &BB : F)
     {
-      errs()<<"POCETAK BASIC BLOKA\n";
       std::set<Value*> bottom_ = *(new std::set<Value*>(bottom[&BB]));// Onaj skup sto pise da je specificno za prog jezik cemo za svaki BB pojedinacno 
       //staviti na njegov out skup zato sto su to promenljive koje moraju biti zive posle njega
       
       for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In)
       {
         Instruction *Instr = &*In;
-        Instr->print(errs());
-        errs()<<"\n";
         //Provera da li je instukcija binarni operator(+-*/...)
         if(auto Operacija = dyn_cast<BinaryOperator>(Instr))
         {
@@ -155,14 +136,13 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
             for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand)
               {
                 Value* var = *operand;
-                if(!isa<Constant>(var) || isa<GlobalVariable>(var))
+                if(!isa<Constant>(var))
                 {
                   bottom_.insert(var);//Dodavanje u skup zivih
                 }
               }
           }else
             {
-              errs()<<"BRISANJE"<<"\n";
               brisanje.insert(Instr);//Dodavanje u skup za brisanje
               continue;
             }
@@ -175,15 +155,13 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
           {
             bottom_.erase(result);
             Value *operand = load->getPointerOperand();
-            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
           }else
             {
-              errs()<<"BRISANJE"<<"\n";
               brisanje.insert(Instr);//Dodavanje u skup za brisanje
-              // errs()<<"BRISANJE PROSLO"<<"\n";
               continue;
             }
         }
@@ -195,7 +173,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
           {
             bottom_.erase(result);
             Value *operand = store->getValueOperand();
-            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
@@ -211,7 +189,7 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
 
           for(auto arg=call->arg_begin(),argE = call->arg_end();arg!=argE;++arg){
             Value* operand = *arg;
-            if(!isa<Constant>(operand)|| isa<GlobalVariable>(operand))//Provera da li je operand variabla a ne nesto poput konstante
+            if(!isa<Constant>(operand))//Provera da li je operand variabla a ne nesto poput konstante
             {
               bottom_.insert(operand);//Dodavanje u skup zivih
             }
@@ -229,52 +207,6 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
     }
     for(auto I : brisanje)//Brisanje iz skupa za brisanje
     {
-      I->eraseFromParent();
-    }
-  }
-
-  //u sustini gleda da li je promenljiva u koju se storuje vrednost ziva na izlazu iz BB 
-  //i ako nije brise taj store
-  //store i32 0, ptr %1, align 4 <- sta je %1 jel to neka default vrednost?
-  //vidim da se uvek nalazi na pocetku funkcije a promenljive krecu od %2
-  //treba da se doda da to ne sme da se brise uopste
-  void EliminateUnusedVariablesGlobal(Function &F)
-  {
-    std::set<Instruction*> deadStore;
-    //store 5 x 
-    //pa se x koristi
-    //a store se ne koristi u drugim BB, onda ne smemo da ga brisemo 
-    //za to se koristi ova mapa
-    std::map<BasicBlock*, std::set<Value*>> usedInBlock;
-    for (BasicBlock &BB : F) {
-      usedInBlock[&BB] = *(new std::set<Value*>());
-      for(BasicBlock::reverse_iterator In = (&BB)->rbegin(),InEnd = (&BB)->rend();In != InEnd; ++In){
-        Instruction *Instr = &*In;
-        if(auto Operacija = dyn_cast<BinaryOperator>(Instr)){
-          for(auto operand = Instr->op_begin();operand != Instr->op_end();++operand){
-            Value* var = *operand;
-            if(!isa<Constant>(var)){
-              usedInBlock[&BB].insert(var);
-            }
-          }
-        } else if(auto load = dyn_cast<LoadInst>(Instr)){
-          Value *operand = load->getPointerOperand();
-          usedInBlock[&BB].insert(operand);
-        } else if(auto store = dyn_cast<StoreInst>(Instr)){
-          Value *result = store->getPointerOperand();
-      
-          if (bottom[&BB].find(result) == bottom[&BB].end() && usedInBlock[&BB].find(result) == usedInBlock[&BB].end()) {
-            deadStore.insert(Instr);
-          }
-
-          Value *operand = store->getValueOperand();
-          usedInBlock[&BB].insert(operand);
-        }
-      }
-    }
-    for (auto I : deadStore){
-      I->print(errs());
-      errs() << '\n';
       I->eraseFromParent();
     }
   }
@@ -299,20 +231,9 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
   }
 
   bool runOnFunction(Function &F)  {
-
-    for (BasicBlock &BB : F) {
-      // BB.print(errs());
-      //InitializeVariableSets(&BB);
-
-    }
     GlobalLivenessAnalysis(F);
-    errs()<< "Prosla Globalna"<<"\n";
-    EliminateUnusedVariablesGlobal(F);
-    errs() << "Prosla globalna eliminacija\n";
-    EliminateUnusedVariablesLocal(F);
-    errs() << "Prosla lokalna eliminacija\n";
+    EliminateUnusedVariables(F);
     EliminateUnreachableInstructions(F);
-    errs() << "PROSLO SVE";
     return true;
   }
 

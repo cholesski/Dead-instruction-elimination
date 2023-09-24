@@ -1,0 +1,2 @@
+ ./bin/clang -emit-llvm -S input.cpp 
+ ./bin/opt -load lib/LLVMOurDeadInstructionElimination.so -enable-new-pm=0 -dead-instruction-elimination input.ll -o output.ll -S

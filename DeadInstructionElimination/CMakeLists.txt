@@ -1,6 +1,5 @@
-add_llvm_library( LLVMOurDeadCodeElimination MODULE
+add_llvm_library( LLVMOurDeadInstructionElimination MODULE
   OurCFG.cpp
-  OurDeadCodeEliminationPass.cpp
   OurDeadInstructionEliminationPass.cpp
 
   PLUGIN_TOOL

@@ -1,7 +1,3 @@
-//
-// Created by strahinja on 4/20/23.
-//
-
 #include "OurCFG.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -31,13 +27,6 @@ void OurCFG::CreateCFG(llvm::Function &F)
   }
 }
 
-/* pravi obrnut graf ali mislim da je mnogo ruzna slozenost 
- mada mislim da se uvecava samo za const faktor ++ slozenost
- samog algoritma je i dalje ruznija ja mislim treba proveriti 
- ovo mozda uraditi na efikasniji nacin ali mrzi me sad da 
-radim bolje 
-ovo napravi normalan graf i onda uzima iz vektora i usmerava ih nazad ka clanu mape
-i btw napravice skroz novi graf u memoriji odvojen*/
 void OurCFG::CreateTransposeCFG(llvm::Function &F)
 {
   for(BasicBlock &BB : F) {
@@ -73,17 +62,11 @@ std::vector<BasicBlock*> OurCFG::GetTraverseOrder()
   returnVal.insert(EndBlock);
   while(!q.empty()){
     BasicBlock* Current = q.front();
-    // errs() << "[CURRENT] : \n";
-    // Current->print(errs());
     q.pop();
     for (BasicBlock* BB : predecessors(Current)){
-      // errs() << "[tekuci predecesor] :\n";
-      // BB->print(errs());
       if (returnVal.find(BB) == returnVal.end()){
         returnVal.insert(BB);
         q.push(BB);
-        // errs() << "[dodao sam predecesora] : \n";
-        // BB->print(errs());
       }
     }
   }
@@ -96,3 +79,4 @@ bool OurCFG::IsReachable(llvm::BasicBlock *BB)
 {
   return Visited.find(BB) != Visited.end();
 }
+
