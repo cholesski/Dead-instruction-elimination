@@ -5,5 +5,3 @@ add_llvm_library( LLVMOurDeadInstructionElimination MODULE
   PLUGIN_TOOL
   opt
   )
-
-

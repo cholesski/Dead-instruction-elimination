@@ -37,11 +37,11 @@
 using namespace llvm;
 
 namespace {
-struct OurDeadStoreEliminationPass : public FunctionPass {
+struct OurDeadInstructionEliminationPass : public FunctionPass {
   bool InstructionRemoved;
 
   static char ID;
-  OurDeadStoreEliminationPass() : FunctionPass(ID) {}
+  OurDeadInstructionEliminationPass() : FunctionPass(ID) {}
 
   std::unordered_map<BasicBlock*, std::set<Value*>> defVar;
   std::unordered_map<BasicBlock*, std::set<Value*>> usedVar;
@@ -241,5 +241,6 @@ struct OurDeadStoreEliminationPass : public FunctionPass {
 }
 
 
-char OurDeadStoreEliminationPass::ID = 1;
-static RegisterPass<OurDeadStoreEliminationPass> X("dead-instruction-elimination", "Our dead instruction elimination pass");
+char OurDeadInstructionEliminationPass::ID = 1;
+static RegisterPass<OurDeadInstructionEliminationPass> X("dead-instruction-elimination", "Our dead instruction elimination pass");
+

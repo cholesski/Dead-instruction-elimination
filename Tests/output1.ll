@@ -27,7 +27,7 @@ define dso_local noundef i32 @main() #0 {
 
 6:                                                ; preds = %14, %0
   %7 = load i32, ptr %5, align 4
-  %8 = icmp slt i32 %7, 0
+  %8 = icmp slt i32 %7, 5
   br i1 %8, label %9, label %17
 
 9:                                                ; preds = %6
